@@ -264,7 +264,6 @@ class CompMDMGeneratedDataset(Dataset):
         if self.dataset.mode == 'eval':
             normed_motion = motion
             denormed_motion = self.dataset.t2m_dataset.inv_transform(normed_motion)
-            print("normalizing and denormalizing")
             renormed_motion = (denormed_motion - self.dataset.mean_for_eval) / self.dataset.std_for_eval  # according to T2M norms
             motion = renormed_motion
             # This step is needed because T2M evaluators expect their norm convention

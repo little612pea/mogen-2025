@@ -436,3 +436,39 @@ class MotionLenEstimatorBiGRU(nn.Module):
         gru_last = torch.cat([gru_last[0], gru_last[1]], dim=-1)
 
         return self.output(gru_last)
+
+import os
+class BertTextEncoder(nn.Module):
+    def __init__(self, modelpath: str):
+        super().__init__()
+
+        from transformers import AutoTokenizer, AutoModel
+        from transformers import logging
+        logging.set_verbosity_error()
+        # Tokenizer
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
+        # Tokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(modelpath)
+        # Text model
+        self.text_model = AutoModel.from_pretrained(modelpath)
+        self.bert_dim = 768
+        self.output_dim = 512
+        self.bert_output_fc = nn.Linear(self.bert_dim, self.output_dim)
+
+
+    def forward(self, texts):
+        encoded_inputs = self.tokenizer(texts, return_tensors="pt", padding=True)
+        output = self.text_model(**encoded_inputs.to(self.text_model.device)).last_hidden_state
+        mask = encoded_inputs.attention_mask.to(dtype=bool)
+        # output = output * mask.unsqueeze(-1)
+        # Remove CLS token by slicing along seq_len dimension
+        output_no_cls = output[:, 1:, :]  # Shape: [batch_size, seq_len-1, hidden_dim]
+        
+        # Apply attention mask to ignore padded tokens
+        output_no_cls = output_no_cls * mask[:, 1:].unsqueeze(-1)
+        
+        # Take mean along seq_len dimension
+        lengths = mask[:, 1:].sum(dim=1).unsqueeze(-1)  # Calculate valid sequence lengths
+        pooled_output = output_no_cls.sum(dim=1) / lengths  # Shape: [batch_size, hidden_dim]
+        output = self.bert_output_fc(pooled_output)
+        return output

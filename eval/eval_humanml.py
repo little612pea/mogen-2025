@@ -3,7 +3,7 @@ from utils.fixseed import fixseed
 from datetime import datetime
 from data_loaders.humanml.motion_loaders.model_motion_loaders import get_mdm_loader  # get_motion_loader
 from data_loaders.humanml.utils.metrics import *
-from data_loaders.humanml.networks.evaluator_wrapper import EvaluatorMDMWrapper
+from data_loaders.humanml.networks.evaluator_wrapper import *
 from collections import OrderedDict
 from data_loaders.humanml.scripts.motion_process import *
 from data_loaders.humanml.utils.utils import *
@@ -30,19 +30,18 @@ def evaluate_matching_score(eval_wrapper, motion_loaders, file):
         top_k_count = 0
         max_distances = []
         min_distances = []
-        print(motion_loader_name)
+        # print(motion_loader_name)
         with torch.no_grad():
             for idx, batch in enumerate(motion_loader):
-                print(f'[{motion_loader_name}] {idx}')
                 word_embeddings, pos_one_hots, text, sent_lens, motions, m_lens, text_tokens = batch
                 text_embeddings, motion_embeddings = eval_wrapper.get_co_embeddings(
                     word_embs=word_embeddings,
                     pos_ohot=pos_one_hots,
                     cap_lens=sent_lens,
                     motions=motions,
-                    m_lens=m_lens
+                    m_lens=m_lens,
+                    caption = text
                 )
-                print(text_embeddings.shape, motion_embeddings.shape)
                 dist_mat = euclidean_distance_matrix(text_embeddings.cpu().numpy(),
                                                      motion_embeddings.cpu().numpy())
                 matching_score_sum += dist_mat.trace()
@@ -55,17 +54,17 @@ def evaluate_matching_score(eval_wrapper, motion_loaders, file):
 
                 all_motion_embeddings.append(motion_embeddings.cpu().numpy())
                  # 遍历每个 motion_embedding (shape: (1, 512))
-                for i in range(motion_embeddings.shape[0]):
-                    # 提取当前 motion 对应的距离行
-                    current_dist_row = dist_mat[i]
+                # for i in range(motion_embeddings.shape[0]):
+                #     # 提取当前 motion 对应的距离行
+                #     current_dist_row = dist_mat[i]
                     
-                    # 找到当前 motion 的最大和最小距离
-                    max_distance = np.max(current_dist_row)
-                    min_distance = np.min(current_dist_row)
+                #     # 找到当前 motion 的最大和最小距离
+                #     max_distance = np.max(current_dist_row)
+                #     min_distance = np.min(current_dist_row)
                     
-                     # 保存最大和最小距离及其相关信息
-                    max_distances.append((max_distance, i, text[i], motions[i].cpu().numpy()))
-                    min_distances.append((min_distance, i, text[i], motions[i].cpu().numpy()))
+                #      # 保存最大和最小距离及其相关信息
+                #     max_distances.append((max_distance, i, text[i], motions[i].cpu().numpy()))
+                #     min_distances.append((min_distance, i, text[i], motions[i].cpu().numpy()))
 
 
             all_motion_embeddings = np.concatenate(all_motion_embeddings, axis=0)
@@ -74,7 +73,7 @@ def evaluate_matching_score(eval_wrapper, motion_loaders, file):
             match_score_dict[motion_loader_name] = matching_score
             R_precision_dict[motion_loader_name] = R_precision
             activation_dict[motion_loader_name] = all_motion_embeddings
-            # 找到最大的 20 个和最小的 20 个距离
+            # # 找到最大的 20 个和最小的 20 个距离
             max_distances.sort(reverse=True, key=lambda x: x[0])  # 按距离降序排序
             min_distances.sort(key=lambda x: x[0])  # 按距离升序排序
 
@@ -134,15 +133,15 @@ def evaluate_fid(eval_wrapper, groundtruth_loader, activation_dict, file):
             gt_motion_embeddings.append(motion_embeddings.cpu().numpy())
     gt_motion_embeddings = np.concatenate(gt_motion_embeddings, axis=0)
     gt_mu, gt_cov = calculate_activation_statistics(gt_motion_embeddings)
-
-    # print(gt_mu)
+     # 将 embeddings 转换为 numpy 数组
+    # 保存为 .npy 文件
     for model_name, motion_embeddings in activation_dict.items():
         mu, cov = calculate_activation_statistics(motion_embeddings)
-        # print(mu)
         fid = calculate_frechet_distance(gt_mu, gt_cov, mu, cov)
         print(f'---> [{model_name}] FID: {fid:.4f}')
         print(f'---> [{model_name}] FID: {fid:.4f}', file=file, flush=True)
         eval_dict[model_name] = fid
+        np.save(f'motion_embedding_{model_name}.npy', motion_embeddings)
     return eval_dict
 
 
@@ -339,7 +338,6 @@ if __name__ == '__main__':
 
     dist_util.setup_dist(args.device)
     logger.configure()
-
     logger.log("creating data loader...")
     split = 'test'
     gt_loader = get_dataset_loader(name=args.dataset, batch_size=args.batch_size, num_frames=None, split=split, hml_mode='gt')
@@ -373,8 +371,10 @@ if __name__ == '__main__':
             scale=args.guidance_param
         )
     }
-
-    eval_wrapper = EvaluatorMDMWrapper(args.dataset, dist_util.dev())
+    if(args.eval_encoder=="agnostic"):
+        eval_wrapper = EvaluatorAgnosticMDMWrapper(args.dataset, dist_util.dev())
+    else:
+        eval_wrapper = EvaluatorMDMWrapper(args, args.dataset, dist_util.dev())
     evaluation(eval_wrapper, gt_loader, eval_motion_loaders, log_file, replication_times, 
                diversity_times, mm_num_times, run_mm=run_mm, eval_platform=eval_platform)
     eval_platform.close()

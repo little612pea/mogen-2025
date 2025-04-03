@@ -268,6 +268,8 @@ def add_evaluation_options(parser):
                         help="Sets the source of the init frames, either from the dataset or isaac init poses.")
     group.add_argument("--guidance_param", default=2.5, type=float,
                        help="For classifier-free sampling - specifies the s parameter, as defined in the paper.")
+    group.add_argument("--eval_encoder", default="bigru", type=str, choices=['bigru', 'bert', 'agnostic'],
+                       help="Text encoder type for evaluation.")
 
 
 def get_cond_mode(args):
